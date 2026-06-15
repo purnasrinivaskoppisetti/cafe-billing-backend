@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.database import engine
-from app.core.database import Base
+from app.core.database import engine, Base
 
 # Import all models so SQLAlchemy knows about them
 from app.models.models import *
@@ -18,9 +18,7 @@ async def lifespan(app: FastAPI):
     print("Creating database tables if they do not exist...")
 
     async with engine.begin() as conn:
-        await conn.run_sync(
-            Base.metadata.create_all
-        )
+        await conn.run_sync(Base.metadata.create_all)
 
     print("Database ready.")
 
@@ -34,18 +32,28 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "https://yourdomain.com",
+        "https://www.yourdomain.com",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(
     sync_router,
     prefix="/api/v1",
     tags=["Sync"]
 )
 
-
-app.include_router(
-    report_router,
-    prefix="/api/v1/reports",
-    tags=["Reports"]
-)
 app.include_router(
     report_router,
     prefix="/api/v1/reports",
