@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     DB_NAME: str
     DB_USER: str
     DB_PASSWORD: str
+    API_TOKEN: str
 
     API_PREFIX: str = "/api/v1"
 
