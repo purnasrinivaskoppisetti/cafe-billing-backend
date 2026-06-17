@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
-from sqlalchemy import func
+from sqlalchemy import select, func
 
 from app.models.models import (
     Transaction,
@@ -15,13 +14,13 @@ class ReportRepository:
     async def get_summary(
         db,
         period: str,
-        payment_method: str | None = None
+        payment_method: str | None = None,
+        device_id: str | None = None
     ):
 
         now = datetime.utcnow()
 
         if period == "day":
-            # Yesterday
             start_date = now - timedelta(days=1)
 
         elif period == "week":
@@ -33,28 +32,34 @@ class ReportRepository:
         else:
             start_date = datetime.min
 
+        # ----------------------------------------
+        # Device Summary
+        # ----------------------------------------
+
         summary_query = (
             select(
+                Transaction.device_id,
                 func.count(
-                    func.distinct(Transaction.id)
+                    Transaction.id
+                ).label(
+                    "total_transactions"
                 ),
                 func.coalesce(
-                    func.sum(Transaction.grand_total),
+                    func.sum(
+                        Transaction.grand_total
+                    ),
                     0
+                ).label(
+                    "total_revenue"
                 ),
                 func.coalesce(
-                    func.sum(Transaction.discount),
+                    func.sum(
+                        Transaction.discount
+                    ),
                     0
-                ),
-                func.coalesce(
-                    func.sum(TransactionItem.qty),
-                    0
+                ).label(
+                    "total_discount"
                 )
-            )
-            .outerjoin(
-                TransactionItem,
-                Transaction.id ==
-                TransactionItem.transaction_id
             )
             .where(
                 Transaction.created_at >= start_date
@@ -67,24 +72,51 @@ class ReportRepository:
                 payment_method
             )
 
+        if device_id:
+            summary_query = summary_query.where(
+                Transaction.device_id ==
+                device_id
+            )
+
+        summary_query = summary_query.group_by(
+            Transaction.device_id
+        )
+
         summary_result = await db.execute(
             summary_query
         )
 
-        (
-            total_transactions,
-            total_revenue,
-            total_discount,
-            total_products_sold
-        ) = summary_result.first()
+        devices = {}
 
-        # Product-wise sales
+        for row in summary_result:
+
+            devices[row.device_id] = {
+                "device_id": row.device_id,
+                "total_transactions": row.total_transactions,
+                "total_revenue": float(
+                    row.total_revenue or 0
+                ),
+                "total_discount": float(
+                    row.total_discount or 0
+                ),
+                "total_products_sold": 0,
+                "product_sales": [],
+                "daily_sales": []
+            }
+
+        # ----------------------------------------
+        # Product-wise Sales
+        # ----------------------------------------
+
         product_query = (
             select(
+                Transaction.device_id,
                 TransactionItem.name,
                 func.sum(
                     TransactionItem.qty
-                ).label("qty_sold")
+                ).label(
+                    "qty_sold"
+                )
             )
             .join(
                 Transaction,
@@ -94,14 +126,6 @@ class ReportRepository:
             .where(
                 Transaction.created_at >= start_date
             )
-            .group_by(
-                TransactionItem.name
-            )
-            .order_by(
-                func.sum(
-                    TransactionItem.qty
-                ).desc()
-            )
         )
 
         if payment_method:
@@ -110,40 +134,70 @@ class ReportRepository:
                 payment_method
             )
 
+        if device_id:
+            product_query = product_query.where(
+                Transaction.device_id ==
+                device_id
+            )
+
+        product_query = (
+            product_query
+            .group_by(
+                Transaction.device_id,
+                TransactionItem.name
+            )
+            .order_by(
+                Transaction.device_id
+            )
+        )
+
         product_result = await db.execute(
             product_query
         )
 
-        products = []
-
         for row in product_result:
-            products.append({
+
+            if row.device_id not in devices:
+                continue
+
+            qty = int(
+                row.qty_sold or 0
+            )
+
+            devices[row.device_id][
+                "total_products_sold"
+            ] += qty
+
+            devices[row.device_id][
+                "product_sales"
+            ].append({
                 "product_name": row.name,
-                "quantity_sold": row.qty_sold
+                "quantity_sold": qty
             })
 
-        # Daily revenue breakdown
+        # ----------------------------------------
+        # Daily Sales
+        # ----------------------------------------
+
         sales_query = (
             select(
+                Transaction.device_id,
                 func.date(
                     Transaction.created_at
-                ).label("date"),
-                func.sum(
-                    Transaction.grand_total
-                ).label("revenue")
+                ).label(
+                    "date"
+                ),
+                func.coalesce(
+                    func.sum(
+                        Transaction.grand_total
+                    ),
+                    0
+                ).label(
+                    "revenue"
+                )
             )
             .where(
                 Transaction.created_at >= start_date
-            )
-            .group_by(
-                func.date(
-                    Transaction.created_at
-                )
-            )
-            .order_by(
-                func.date(
-                    Transaction.created_at
-                )
             )
         )
 
@@ -153,23 +207,50 @@ class ReportRepository:
                 payment_method
             )
 
+        if device_id:
+            sales_query = sales_query.where(
+                Transaction.device_id ==
+                device_id
+            )
+
+        sales_query = (
+            sales_query
+            .group_by(
+                Transaction.device_id,
+                func.date(
+                    Transaction.created_at
+                )
+            )
+            .order_by(
+                Transaction.device_id,
+                func.date(
+                    Transaction.created_at
+                )
+            )
+        )
+
         sales_result = await db.execute(
             sales_query
         )
 
-        daily_sales = []
-
         for row in sales_result:
-            daily_sales.append({
-                "date": str(row.date),
-                "revenue": float(row.revenue)
+
+            if row.device_id not in devices:
+                continue
+
+            devices[row.device_id][
+                "daily_sales"
+            ].append({
+                "date": str(
+                    row.date
+                ),
+                "revenue": float(
+                    row.revenue or 0
+                )
             })
 
         return {
-            "total_transactions": total_transactions,
-            "total_revenue": float(total_revenue),
-            "total_discount": float(total_discount),
-            "total_products_sold": total_products_sold,
-            "product_sales": products,
-            "daily_sales": daily_sales
+            "devices": list(
+                devices.values()
+            )
         }

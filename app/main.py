@@ -10,7 +10,7 @@ from app.models.models import *
 
 from app.api.v1.sync import router as sync_router
 from app.api.v1.reports import router as report_router
-
+from app.api.v1.transaction_router import router as transaction_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -58,4 +58,9 @@ app.include_router(
     report_router,
     prefix="/api/v1/reports",
     tags=["Reports"]
+)
+app.include_router(
+    transaction_router,
+    prefix="/api",
+    tags=["Transaction"]
 )

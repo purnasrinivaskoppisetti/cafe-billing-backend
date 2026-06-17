@@ -17,11 +17,12 @@ router = APIRouter()
 async def get_summary(
     period: str = Query("day"),
     payment_method: str | None = None,
+    device_id: str | None = None,
     db: AsyncSession = Depends(get_db)
 ):
-
     return await ReportService.get_summary(
         db,
         period,
-        payment_method
+        payment_method,
+        device_id
     )

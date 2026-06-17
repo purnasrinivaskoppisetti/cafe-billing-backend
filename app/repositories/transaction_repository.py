@@ -66,3 +66,51 @@ class TransactionRepository:
         await db.refresh(transaction)
 
         return transaction
+    
+
+
+    @staticmethod
+    async def delete_transaction(
+        db,
+        order_id: str | None = None,
+        bill_number: str | None = None
+    ):
+
+        if not order_id and not bill_number:
+            return {
+                "success": False,
+                "message": "order_id or bill_number is required"
+            }
+
+        query = select(Transaction)
+
+        if order_id:
+            query = query.where(
+                Transaction.id == order_id
+            )
+
+        elif bill_number:
+            query = query.where(
+                Transaction.bill_number == bill_number
+            )
+
+        result = await db.execute(query)
+
+        transaction = result.scalar_one_or_none()
+
+        if not transaction:
+            return {
+                "success": False,
+                "message": "Transaction not found"
+            }
+
+        await db.delete(transaction)
+
+        await db.commit()
+
+        return {
+            "success": True,
+            "message": "Transaction deleted successfully",
+            "transaction_id": transaction.id,
+            "bill_number": transaction.bill_number
+        }

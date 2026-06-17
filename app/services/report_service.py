@@ -9,11 +9,12 @@ class ReportService:
     async def get_summary(
         db,
         period,
-        payment_method=None
+        payment_method=None,
+        device_id=None
     ):
-
         return await ReportRepository.get_summary(
             db,
             period,
-            payment_method
+            payment_method,
+            device_id
         )
